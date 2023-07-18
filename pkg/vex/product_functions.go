@@ -12,7 +12,8 @@ func (p *Product) Matches(identifier, subIdentifier string) bool {
 		return false
 	}
 
-	if subIdentifier == "" {
+	// If the product has no subcomponents, matching the product part is enough
+	if len(p.Subcomponents) == 0 {
 		return true
 	}
 
@@ -26,8 +27,15 @@ func (p *Product) Matches(identifier, subIdentifier string) bool {
 }
 
 func (c *Component) Matches(identifier string) bool {
-	if c.ID == identifier {
+	// If we have an exact match in the ID, match
+	if c.ID == identifier && c.ID != "" {
 		return true
+	} else if strings.HasPrefix(c.ID, "pkg:") {
+		// ... but the identifier can be a purl. If it is, then do
+		// a purl comparison:
+		if PurlMatches(c.ID, identifier) {
+			return true
+		}
 	}
 
 	for t, id := range c.Identifiers {
@@ -52,6 +60,11 @@ func (c *Component) Matches(identifier string) bool {
 }
 
 func (v *Vulnerability) Matches(identifier string) bool {
+	// Identifier is an IRI, not te vuln ID. To match against the vuln.ID
+	// we should normalize the identifier to the full IRI (ie de-localize)
+	if v.ID == identifier {
+		return true
+	}
 	if string(v.Name) == identifier {
 		return true
 	}
@@ -141,22 +154,24 @@ func PurlMatches(purl1, purl2 string) bool {
 	return true
 }
 
-// LatestStatement returns the latest VEX statement for a given product and
+// Matches returns the latest VEX statement for a given product and
 // vulnerability, that is the statement that contains the latest data about
 // impact to a given product.
-func (vexDoc *VEX) LatestStatement(vulnID, product string, subcomponents []string) (s *Statement) {
+func (vexDoc *VEX) Matches(vulnID, product string, subcomponents []string) []Statement {
 	statements := vexDoc.Statements
 	var t time.Time
 	if vexDoc.Timestamp != nil {
 		t = *vexDoc.Timestamp
 	}
 
-	SortStatements(statements, t)
+	matches := []Statement{}
 
 	for i := len(statements) - 1; i >= 0; i-- {
 		if statements[i].Matches(vulnID, product, subcomponents) {
-			return &statements[i]
+			matches = append(matches, statements[i])
 		}
 	}
-	return nil
+
+	SortStatements(matches, t)
+	return matches
 }
